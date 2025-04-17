@@ -15,7 +15,7 @@ export default async function handler(req, res) {
           Authorization: `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
-          model: "gpt-4o", 
+          model: "gpt-4o",
           messages: [
             {
               role: "user",
@@ -26,12 +26,20 @@ export default async function handler(req, res) {
       });
 
       const data = await response.json();
-      const answer = data.choices?.[0]?.message?.content || "⚠️ GPT не вернул ответа.";
+
+      // 👇 Добавим лог в консоль, чтоб видеть что вернул OpenAI
+      console.log("OpenAI response:", JSON.stringify(data, null, 2));
+
+      const answer = data.choices?.[0]?.message?.content;
+
+      if (!answer) {
+        return res.status(200).send("⚠️ GPT не вернул ответа.");
+      }
 
       return res.status(200).send(answer);
     } catch (err) {
-      console.error("GPT-4o error:", err);
-      return res.status(200).send("⚠️ Не удалось получить ответ от GPT-4o.");
+      console.error("GPT error:", err);
+      return res.status(200).send("⚠️ Не удалось получить ответ от GPT.");
     }
   }
 
