@@ -6,6 +6,6 @@
   "dependencies": {
     "@upstash/redis": "latest",
     "node-fetch": "latest",
-    "axios": "latest"                     // ✅ добавлено
+    "axios": "latest"                     
   }
 }
