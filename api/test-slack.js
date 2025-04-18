@@ -3,39 +3,43 @@
 const axios = require('axios');
 
 module.exports = async (req, res) => {
-  console.log('✅ [TEST] Starting Slack API test with axios + env var...');
   const channelId = process.env.TEST_CHANNEL_ID;
+  const token = process.env.SLACK_BOT_TOKEN;
 
-  console.log('[TEST] Using channelId:', channelId);
+  console.log('✅ [TEST] Starting Slack diagnostics...');
+  console.log('🧾 [TEST] Using channelId:', channelId);
 
-  if (!channelId) {
-    console.error('❌ [TEST] TEST_CHANNEL_ID is not set in env');
-    return res.status(400).json({ error: 'Missing TEST_CHANNEL_ID in environment variables' });
+  if (!channelId || !token) {
+    return res.status(400).json({
+      error: 'Missing required env vars (TEST_CHANNEL_ID or SLACK_BOT_TOKEN)',
+    });
   }
+
+  const body = { channel: channelId };
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json; charset=utf-8',
+  };
+
+  console.log('📤 [TEST] Request body:', JSON.stringify(body));
+  console.log('📤 [TEST] Headers:', headers);
 
   try {
     const response = await axios.post(
       'https://slack.com/api/conversations.info',
-      { channel: channelId },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-          'Content-Type': 'application/json; charset=utf-8',
-        },
-      }
+      body,
+      { headers }
     );
 
-    console.log('[TEST] Slack response data:', JSON.stringify(response.data, null, 2));
+    console.log('📥 [TEST] Slack response:', JSON.stringify(response.data, null, 2));
 
-    if (!response.data.ok) {
-      console.error('[TEST] Slack API returned error:', response.data.error);
-    } else {
-      console.log('[TEST] Slack API call succeeded.');
-    }
-
-    res.status(200).json({ status: 'ok', response: response.data });
+    res.status(200).json({
+      status: 'ok',
+      sent: { body, headers },
+      response: response.data,
+    });
   } catch (err) {
-    console.error('[TEST] Axios request failed:', err.message);
+    console.error('❌ [TEST] Axios error:', err.message);
     res.status(500).json({ error: err.message });
   }
 };
