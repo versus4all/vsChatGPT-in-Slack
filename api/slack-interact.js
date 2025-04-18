@@ -1,6 +1,8 @@
+// api/slack-interact.js
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 const { cancelSummary } = require('../lib/summary');
 const state = require('../lib/state');
+const qs = require('querystring');
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
@@ -8,10 +10,21 @@ module.exports = async (req, res) => {
   }
 
   try {
-    // req.body уже распарсен в объект
-    const payload = req.body;
+    // 1) Распарсим тело: form-urlencoded или JSON
+    let payload;
+    const contentType = req.headers['content-type'] || '';
+    if (contentType.includes('application/x-www-form-urlencoded')) {
+      // Slack шлёт { payload: '…JSON…' }
+      const parsed = qs.parse(req.body);
+      payload = JSON.parse(parsed.payload);
+    } else {
+      // Другие варианты (если вдруг)
+      payload = req.body;
+    }
 
-    // Обрабатываем только блоковые действия по кнопке cancel_summary
+    console.log('[INTERACT] Payload received:', JSON.stringify(payload));
+
+    // 2) Обрабатываем только block_actions → cancel_summary
     if (
       payload.type === 'block_actions' &&
       payload.actions?.[0]?.action_id === 'cancel_summary'
@@ -22,9 +35,12 @@ module.exports = async (req, res) => {
       console.log(`[INTERACT] Cancel requested by user=${userId}, threadTs=${threadTs}`);
 
       const existing = await state.get(userId, threadTs);
+      console.log(`[INTERACT] Current status in Redis: ${existing}`);
+
       if (existing === 'scheduled') {
         await cancelSummary(userId, threadTs);
 
+        // Обновляем сообщение
         await fetch(payload.response_url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -36,6 +52,7 @@ module.exports = async (req, res) => {
 
         console.log(`[INTERACT] Summary cancelled.`);
       } else {
+        // Если задача уже выполнена или отменена
         await fetch(payload.response_url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -51,8 +68,9 @@ module.exports = async (req, res) => {
       return res.status(200).end();
     }
 
-    // Всё остальное игнорируем
+    // Всё остальное — просто 200
     return res.status(200).end();
+
   } catch (error) {
     console.error('[INTERACT] Error handling action:', error);
     return res.status(500).send('Internal Server Error');
