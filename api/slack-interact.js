@@ -1,56 +1,61 @@
-const { pendingSummaries } = require('../lib/state');
+const { cancelSummary } = require('../lib/summary');
+const state = require('../lib/state');
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST');
-    return res.status(405).end('Method Not Allowed');
+    return res.status(405).send('Method Not Allowed');
   }
 
-  const rawPayload = req.body?.payload || req.body;
-  const payload = typeof rawPayload === 'string' ? JSON.parse(rawPayload) : rawPayload;
+  try {
+    const payload = JSON.parse(req.body);
 
-  const userId = payload?.user?.id;
-  const actionId = payload?.actions?.[0]?.action_id;
-  const channelId = payload?.channel?.id || payload?.container?.channel_id || userId;
+    // Проверяем тип действия (только для кнопки)
+    if (payload.type === 'block_actions' && payload.actions?.[0]?.action_id === 'cancel_summary') {
+      const userId = payload.user.id;
+      const threadTs = payload.message.ts;
 
-  console.log('[INTERACT] Action:', actionId, '| From user:', userId);
+      console.log(`[INTERACT] Cancel requested by user=${userId}, threadTs=${threadTs}`);
 
-  if (actionId === 'cancel_summary') {
-    if (pendingSummaries.has(userId)) {
-      console.log('[INTERACT] Cancelling timeout for user:', userId);
-      const timeoutId = pendingSummaries.get(userId);
-      if (timeoutId) clearTimeout(timeoutId);
-      pendingSummaries.delete(userId);
+      const existing = await state.get(userId, threadTs);
+      if (existing === 'scheduled') {
+        await cancelSummary(userId, threadTs);
 
-      await fetch('https://slack.com/api/chat.postMessage', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-        },
-        body: JSON.stringify({
-          channel: channelId,
-          text: '✅ Summary canceled.',
-        }),
-      });
+        // Обновляем сообщение в Slack
+        await fetch(payload.response_url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            text: '❌ Summary has been cancelled.',
+            replace_original: true,
+          }),
+        });
 
-      return res.status(200).end();
-    } else {
-      console.log('[INTERACT] Nothing to cancel for user:', userId);
-      await fetch('https://slack.com/api/chat.postMessage', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-        },
-        body: JSON.stringify({
-          channel: channelId,
-          text: '⚠️ Nothing to cancel.',
-        }),
-      });
+        console.log(`[INTERACT] Summary cancelled.`);
+      } else {
+        // Если задача уже выполнена/отменена
+        await fetch(payload.response_url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            text: '⚠️ Summary is no longer pending.',
+            replace_original: true,
+          }),
+        });
+
+        console.log(`[INTERACT] Cancel ignored — no active job.`);
+      }
+
       return res.status(200).end();
     }
-  }
 
-  return res.status(200).send('✅ Interaction received.');
+    // Если пришло что-то другое — просто завершаем
+    return res.status(200).end();
+  } catch (error) {
+    console.error('[INTERACT] Error handling action:', error);
+    return res.status(500).send('Internal Server Error');
+  }
 };
