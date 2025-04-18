@@ -4,7 +4,7 @@ const axios = require('axios');
 
 module.exports = async (req, res) => {
   console.log('✅ [TEST] Starting Slack API test with axios...');
-  const channelId = 'C02VDCVNJ01'; // 👈 Убедись, что ID актуальный
+  const channelId = 'C02VDCVNJ01'; // 👈 Твой актуальный ID канала
 
   try {
     const response = await axios.post(
@@ -13,7 +13,7 @@ module.exports = async (req, res) => {
       {
         headers: {
           Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json; charset=utf-8', // ✅ добавлено charset
         },
       }
     );
