@@ -1,67 +1,102 @@
-import { runSummary } from '../lib/summary.js';
+const { pendingSummaries } = require('./state');
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).end('Method Not Allowed');
+const runSummary = async ({ channel, thread_ts, user, dmChannel, limit, isThread }) => {
+  console.log('[summary] Preparing timer for user:', user);
 
-  const { text, user_id, channel_id } = req.body;
-  const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
+  const timeoutId = setTimeout(async () => {
+    try {
+      console.log('[summary] Generating summary for user:', user);
 
-  // Открываем DM канал
-  const dmRes = await fetch('https://slack.com/api/conversations.open', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${SLACK_BOT_TOKEN}`,
-    },
-    body: JSON.stringify({ users: user_id }),
-  });
-
-  const dm = await dmRes.json();
-  const dmChannel = dm.channel?.id;
-
-  // Парсим лимит сообщений
-  const match = text.match(/--last (\d+)/);
-  const limit = match ? parseInt(match[1], 10) : 20;
-
-  // Сообщение с кнопкой отмены
-  await fetch('https://slack.com/api/chat.postMessage', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${SLACK_BOT_TOKEN}`,
-    },
-    body: JSON.stringify({
-      channel: dmChannel,
-      text: '⏳ Подготовка summary...',
-      blocks: [
-        {
-          type: 'section',
-          text: { type: 'mrkdwn', text: '⏳ *Summary is being prepared...*' },
+      const response = await fetch('https://slack.com/api/conversations.replies', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
         },
-        {
-          type: 'actions',
-          elements: [
+        body: new URLSearchParams({
+          channel,
+          ts: thread_ts || '',
+          limit: String(limit || 20),
+        }),
+      });
+
+      const data = await response.json();
+      const messages = data.messages || [];
+
+      if (messages.length === 0) {
+        await fetch('https://slack.com/api/chat.postMessage', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+          },
+          body: JSON.stringify({
+            channel: dmChannel,
+            text: '⚠️ Не удалось найти сообщения для обзора.',
+          }),
+        });
+        return;
+      }
+
+      const content = messages
+        .map((m) => `• ${m.user || 'user'}: ${m.text}`)
+        .slice(-limit)
+        .join('\n');
+
+      const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4',
+          messages: [
             {
-              type: 'button',
-              text: { type: 'plain_text', text: '❌ Отменить', emoji: true },
-              style: 'danger',
-              action_id: 'cancel_summary',
+              role: 'system',
+              content: 'Сделай краткий обзор следующих Slack-сообщений:',
+            },
+            {
+              role: 'user',
+              content,
             },
           ],
+        }),
+      });
+
+      const openaiJson = await openaiRes.json();
+      const summary = openaiJson.choices?.[0]?.message?.content?.trim();
+
+      await fetch('https://slack.com/api/chat.postMessage', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
         },
-      ],
-    }),
-  });
+        body: JSON.stringify({
+          channel: dmChannel,
+          text: summary || '⚠️ Не удалось сгенерировать обзор.',
+        }),
+      });
+    } catch (error) {
+      console.error('[summary] Error:', error);
+      await fetch('https://slack.com/api/chat.postMessage', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+        },
+        body: JSON.stringify({
+          channel: dmChannel,
+          text: '⚠️ Failed to generate summary.',
+        }),
+      });
+    } finally {
+      pendingSummaries.delete(user);
+    }
+  }, 30000); // 30 сек
 
-  // Запускаем summary через 30 секунд
-  await runSummary({
-    channel: channel_id,
-    thread_ts: null,
-    user: user_id,
-    dmChannel,
-    limit,
-    isThread: false,
-  });
+  pendingSummaries.set(user, timeoutId);
+};
 
-  return res.status(200).end();
-}
+module.exports = { runSummary };
