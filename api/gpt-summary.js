@@ -4,7 +4,7 @@ const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fet
 
 module.exports = async (req, res) => {
   res.status(200).send();
-  console.log('[GPT-SUMMARY] Slack response sent, starting processing...');
+  console.log('✅ [GPT] Slack acknowledged request, processing begins.');
 
   const body = req.body;
 
@@ -16,45 +16,62 @@ module.exports = async (req, res) => {
   const match = commandText.match(/--last (\d+)/);
   const numMessages = match ? parseInt(match[1], 10) : 10;
 
-  console.log(`[GPT-SUMMARY] Request from user=${userId}, channel=${channelId}, threadTs=${threadTs}, last=${numMessages}`);
+  console.log(`ℹ️ [GPT] Params: user=${userId}, channel=${channelId}, threadTs=${threadTs}, last=${numMessages}`);
 
   try {
-    console.log('[GPT-SUMMARY] Fetching conversation history...');
-    const historyResp = await fetch('https://slack.com/api/conversations.history', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        channel: channelId,
-        limit: numMessages,
-        inclusive: true,
-        ...(threadTs ? { oldest: threadTs } : {}),
-      }),
-    });
+    console.log('📡 [GPT] Sending fetch to Slack conversations.history...');
 
-    console.log('[GPT-SUMMARY] Fetch status:', historyResp.status);
-    console.log('[GPT-SUMMARY] Fetch headers:', JSON.stringify([...historyResp.headers.entries()], null, 2));
+    let historyResp;
+    try {
+      historyResp = await fetch('https://slack.com/api/conversations.history', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          channel: channelId,
+          limit: numMessages,
+          inclusive: true,
+          ...(threadTs ? { oldest: threadTs } : {}),
+        }),
+      });
+    } catch (fetchErr) {
+      console.error('❌ [GPT] Fetch to Slack failed');
+      console.error('Name:', fetchErr.name);
+      console.error('Message:', fetchErr.message);
+      console.error('Stack:', fetchErr.stack);
+      return;
+    }
 
-    const raw = await historyResp.text();
-    console.log('[GPT-SUMMARY] Raw Slack response:', raw);
+    console.log('✅ [GPT] Slack responded, reading body...');
+
+    let raw;
+    try {
+      raw = await historyResp.text();
+    } catch (readErr) {
+      console.error('❌ [GPT] Error reading Slack response text:', readErr);
+      return;
+    }
+
+    console.log('📨 [GPT] Raw Slack response:', raw);
 
     let history;
     try {
       history = JSON.parse(raw);
-    } catch (err) {
-      console.error('[GPT-SUMMARY] Error parsing JSON from Slack:', err);
+    } catch (parseErr) {
+      console.error('❌ [GPT] Failed to parse Slack response JSON');
+      console.error('Message:', parseErr.message);
       return;
     }
 
     if (!history.ok) {
-      console.error(`[GPT-SUMMARY] Slack returned error: ${history.error}`);
+      console.error('⚠️ [GPT] Slack returned error:', history.error);
       return;
     }
 
     const messages = history.messages.reverse().map(m => m.text).join('\n');
-    console.log('[GPT-SUMMARY] Messages fetched, sending to OpenAI...');
+    console.log('✏️ [GPT] Messages fetched. Calling OpenAI...');
 
     const prompt = `Summarize the following Slack discussion:\n\n${messages}`;
     const gptResp = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -71,7 +88,8 @@ module.exports = async (req, res) => {
 
     const gptData = await gptResp.json();
     const summary = gptData.choices?.[0]?.message?.content || '[No summary returned]';
-    console.log('[GPT-SUMMARY] GPT responded, sending summary via DM...');
+
+    console.log('📤 [GPT] GPT responded. Opening DM...');
 
     const dmResp = await fetch('https://slack.com/api/conversations.open', {
       method: 'POST',
@@ -83,7 +101,10 @@ module.exports = async (req, res) => {
     });
 
     const dm = await dmResp.json();
-    if (!dm.ok) throw new Error(`Failed to open DM: ${dm.error}`);
+    if (!dm.ok) {
+      console.error('❌ [GPT] Failed to open DM:', dm.error);
+      return;
+    }
 
     await fetch('https://slack.com/api/chat.postMessage', {
       method: 'POST',
@@ -97,8 +118,11 @@ module.exports = async (req, res) => {
       }),
     });
 
-    console.log(`[GPT-SUMMARY] Summary sent to user=${userId}`);
+    console.log(`✅ [GPT] Summary sent to user=${userId}`);
   } catch (err) {
-    console.error('[GPT-SUMMARY] Fatal error:', err);
+    console.error('🔥 [GPT] Uncaught fatal error:');
+    console.error('Name:', err.name);
+    console.error('Message:', err.message);
+    console.error('Stack:', err.stack);
   }
 };
