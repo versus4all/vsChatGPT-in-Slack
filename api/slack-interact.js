@@ -3,9 +3,17 @@ const { pendingSummaries } = require('../lib/state');
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(405).end('Method Not Allowed');
 
-  const payload = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-  const userId = payload.user.id;
-  const actionId = payload.actions?.[0]?.action_id;
+  // Slack шлёт payload как строку с form-urlencoded
+  const rawPayload = req.body?.payload || req.body;
+  const parsed = typeof rawPayload === 'string' ? JSON.parse(rawPayload) : rawPayload;
+
+  const userId = parsed?.user?.id;
+  const actionId = parsed?.actions?.[0]?.action_id;
+
+  if (!userId || !actionId) {
+    console.error('❌ Bad Slack payload:', parsed);
+    return res.status(400).send('Invalid payload');
+  }
 
   if (actionId === 'cancel_summary') {
     if (pendingSummaries.has(userId)) {
@@ -19,7 +27,7 @@ module.exports = async (req, res) => {
           Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
         },
         body: JSON.stringify({
-          channel: payload.channel.id,
+          channel: parsed.channel.id,
           text: '✅ Summary canceled.',
         }),
       });
