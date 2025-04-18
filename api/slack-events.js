@@ -1,4 +1,4 @@
-import { pendingSummaries } from './slack-interact';
+import { pendingSummaries } from '../lib/state.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
