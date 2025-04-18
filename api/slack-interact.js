@@ -1,4 +1,3 @@
-// api/slack-interact.js
 const fetch = (...args) =>
   import('node-fetch').then(({ default: fetch }) => fetch(...args));
 const { cancelSummary } = require('../lib/summary');
@@ -11,7 +10,7 @@ module.exports = async (req, res) => {
   }
 
   try {
-    // Распарсим тело
+    // 1) Разбираем тело — поддерживаем form-urlencoded и JSON
     let payload;
     if (req.body && typeof req.body === 'object' && 'payload' in req.body) {
       const p = req.body.payload;
@@ -25,17 +24,15 @@ module.exports = async (req, res) => {
 
     console.log('[INTERACT] Payload received:', JSON.stringify(payload));
 
-    // Обрабатываем только нажатие кнопки
+    // 2) Обрабатываем нажатие кнопки "Cancel summary"
     if (
       payload.type === 'block_actions' &&
       payload.actions?.[0]?.action_id === 'cancel_summary'
     ) {
       const userId = payload.user.id;
-      // Берём ts из container.message_ts
-      const threadTs = payload.container?.message_ts;
-      console.log(
-        `[INTERACT] Cancel requested by user=${userId}, threadTs=${threadTs}`
-      );
+      const threadTs = payload.actions[0].value;    // ← берём из value кнопки
+
+      console.log(`[INTERACT] Cancel requested by user=${userId}, threadTs=${threadTs}`);
 
       const existing = await state.get(userId, threadTs);
       console.log(`[INTERACT] Current status in Redis: ${existing}`);
@@ -69,6 +66,7 @@ module.exports = async (req, res) => {
       return res.status(200).end();
     }
 
+    // Всё прочее — возвращаем 200 OK
     return res.status(200).end();
   } catch (error) {
     console.error('[INTERACT] Error handling action:', error);
