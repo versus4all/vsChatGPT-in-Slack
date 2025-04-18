@@ -1,9 +1,8 @@
 // api/gpt-summary.js
 
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 module.exports = async (req, res) => {
-  // 1. Отвечаем Slack, чтобы избежать operation_timeout
   res.status(200).send();
   console.log('[GPT-SUMMARY] Slack response sent, starting processing...');
 
@@ -20,7 +19,6 @@ module.exports = async (req, res) => {
   console.log(`[GPT-SUMMARY] Request from user=${userId}, channel=${channelId}, threadTs=${threadTs}, last=${numMessages}`);
 
   try {
-    // 2. Получаем последние N сообщений из Slack
     console.log('[GPT-SUMMARY] Fetching conversation history...');
     const historyResp = await fetch('https://slack.com/api/conversations.history', {
       method: 'POST',
@@ -36,30 +34,22 @@ module.exports = async (req, res) => {
       }),
     });
 
-try {
-  const history = await historyResp.json();
-  console.log('[GPT-SUMMARY] Slack history response:', JSON.stringify(history, null, 2));
+    let history;
+    try {
+      history = await historyResp.json();
+      console.log('[GPT-SUMMARY] Slack history response:', JSON.stringify(history, null, 2));
+    } catch (err) {
+      const raw = await historyResp.text?.();
+      console.error('[GPT-SUMMARY] Error parsing Slack response:', err);
+      if (raw) console.error('[GPT-SUMMARY] Raw Slack response:', raw);
+      return;
+    }
 
-  if (!history.ok) throw new Error(`Failed to fetch messages: ${history.error}`);
-
-  const messages = history.messages.reverse().map(m => m.text).join('\n');
-  console.log('[GPT-SUMMARY] Messages fetched, sending to OpenAI...');
-  
-  // продолжение...
-} catch (err) {
-  const raw = await historyResp.text?.();
-  console.error('[GPT-SUMMARY] Error parsing Slack response:', err);
-  if (raw) {
-    console.error('[GPT-SUMMARY] Raw Slack response:', raw);
-  }
-  return;
-}
-
+    if (!history.ok) throw new Error(`Failed to fetch messages: ${history.error}`);
 
     const messages = history.messages.reverse().map(m => m.text).join('\n');
     console.log('[GPT-SUMMARY] Messages fetched, sending to OpenAI...');
 
-    // 3. Отправляем в GPT
     const prompt = `Summarize the following Slack discussion:\n\n${messages}`;
     const gptResp = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -77,7 +67,6 @@ try {
     const summary = gptData.choices?.[0]?.message?.content || '[No summary returned]';
     console.log('[GPT-SUMMARY] GPT responded, sending summary via DM...');
 
-    // 4. Открываем личку и отправляем результат пользователю
     const dmResp = await fetch('https://slack.com/api/conversations.open', {
       method: 'POST',
       headers: {
