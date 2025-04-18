@@ -34,7 +34,9 @@ module.exports = async (req, res) => {
       }),
     });
 
-    // 💡 Вместо try/json → читаем как текст и пытаемся распарсить
+    console.log('[GPT-SUMMARY] Fetch status:', historyResp.status);
+    console.log('[GPT-SUMMARY] Fetch headers:', JSON.stringify([...historyResp.headers.entries()], null, 2));
+
     const raw = await historyResp.text();
     console.log('[GPT-SUMMARY] Raw Slack response:', raw);
 
@@ -42,7 +44,7 @@ module.exports = async (req, res) => {
     try {
       history = JSON.parse(raw);
     } catch (err) {
-      console.error('[GPT-SUMMARY] Error parsing Slack response:', err);
+      console.error('[GPT-SUMMARY] Error parsing JSON from Slack:', err);
       return;
     }
 
