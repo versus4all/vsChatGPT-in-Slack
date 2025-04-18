@@ -1,5 +1,5 @@
-const { runSummary } = require('../lib/summary');
 const { pendingSummaries } = require('../lib/state');
+const { runSummary } = require('../lib/summary');
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
@@ -12,7 +12,10 @@ module.exports = async (req, res) => {
   const limit = match ? parseInt(match[1], 10) : 20;
   const isThread = !!thread_ts;
 
-  console.log('[GPT-SUMMARY] Start requested by:', user_id);
+  console.log('[GPT-SUMMARY] Requested by:', user_id);
+
+  // Создаём пустой "маяк", чтобы можно было отменить до запуска таймера
+  pendingSummaries.set(user_id, null);
 
   const dmRes = await fetch('https://slack.com/api/conversations.open', {
     method: 'POST',
@@ -26,7 +29,7 @@ module.exports = async (req, res) => {
   const dmData = await dmRes.json();
   const dmChannel = dmData.channel?.id;
 
-  // Сообщение с кнопкой отмены
+  // Показываем кнопку отмены
   await fetch('https://slack.com/api/chat.postMessage', {
     method: 'POST',
     headers: {
@@ -56,16 +59,17 @@ module.exports = async (req, res) => {
     }),
   });
 
-  console.log('[GPT-SUMMARY] Calling runSummary with user_id:', user_id);
-
-  await runSummary({
-    channel: channel_id,
-    thread_ts,
-    user: user_id,
-    dmChannel,
-    limit,
-    isThread,
-  });
+  // Ставим таймер чуть позже, чтобы Slack успел отрисовать
+  setTimeout(() => {
+    runSummary({
+      channel: channel_id,
+      thread_ts,
+      user: user_id,
+      dmChannel,
+      limit,
+      isThread,
+    });
+  }, 100); // 100ms задержка
 
   return res.status(200).end();
 };
