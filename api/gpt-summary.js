@@ -10,11 +10,11 @@ module.exports = async (req, res) => {
 
     const userId = body.user_id;
     const threadTs = body.thread_ts || body.ts || 'default';
-    const delayMs = 30000; // 30 seconds
+    const delayMs = 30000; // 30 секунд
 
     console.log(`[GPT-SUMMARY] Received request from user=${userId}, threadTs=${threadTs}`);
 
-    // Отправляем "ожидание" и кнопку отмены
+    // Эфемерное сообщение с кнопкой отмены
     const payload = {
       response_type: 'ephemeral',
       text: '⏳ Summary will be generated in 30 seconds…',
@@ -37,15 +37,17 @@ module.exports = async (req, res) => {
               },
               action_id: 'cancel_summary',
               style: 'danger',
+              value: threadTs,                // ← передаём оригинальный threadTs
             },
           ],
         },
       ],
     };
 
+    // сразу отвечаем Slack, чтобы избежать dispatch_failed
     res.status(200).json(payload);
 
-    // Запускаем отложенную задачу
+    // запускаем отложенную задачу
     await createSummaryJob({
       userId,
       threadTs,
@@ -53,11 +55,10 @@ module.exports = async (req, res) => {
       callback: async () => {
         console.log(`[GPT-SUMMARY] Generating summary for user=${userId}, threadTs=${threadTs}`);
 
-        // TODO: здесь должен быть твой код генерации summary
-        // Пример:
+        // ЗДЕСЬ: замени на реальную логику сборa и вызова GPT
         const summaryText = `🧠 Summary for thread \`${threadTs}\` (user: ${userId})`;
 
-        // Отправляем пользователю в личку
+        // отправляем итог в личку
         await fetch('https://slack.com/api/chat.postMessage', {
           method: 'POST',
           headers: {
