@@ -3,6 +3,9 @@
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
 module.exports = async (req, res) => {
+  // 1. Сразу отвечаем Slack, чтобы избежать operation_timeout
+  res.status(200).send();
+
   const body = req.body;
 
   const commandText = body.text || '';
@@ -10,12 +13,14 @@ module.exports = async (req, res) => {
   const channelId = body.channel_id;
   const threadTs = body.thread_ts || null;
 
+  // Параметр --last N (по умолчанию 10)
   const match = commandText.match(/--last (\d+)/);
   const numMessages = match ? parseInt(match[1], 10) : 10;
 
   console.log(`[GPT-SUMMARY] Request from user=${userId}, channel=${channelId}, threadTs=${threadTs}, last=${numMessages}`);
 
   try {
+    // 2. Получаем последние N сообщений из Slack
     const historyResp = await fetch('https://slack.com/api/conversations.history', {
       method: 'POST',
       headers: {
@@ -35,6 +40,7 @@ module.exports = async (req, res) => {
 
     const messages = history.messages.reverse().map(m => m.text).join('\n');
 
+    // 3. Отправляем в GPT
     const prompt = `Summarize the following Slack discussion:\n\n${messages}`;
     const gptResp = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -51,6 +57,7 @@ module.exports = async (req, res) => {
     const gptData = await gptResp.json();
     const summary = gptData.choices?.[0]?.message?.content || '[No summary returned]';
 
+    // 4. Открываем личку и отправляем результат пользователю
     const dmResp = await fetch('https://slack.com/api/conversations.open', {
       method: 'POST',
       headers: {
@@ -71,13 +78,12 @@ module.exports = async (req, res) => {
       },
       body: JSON.stringify({
         channel: dm.channel.id,
-        text: `🧠 Here’s your summary:\n\n${summary}`,
+        text: `🧠 *Summary:*\n\n${summary}`,
       }),
     });
 
-    res.status(200).send();
+    console.log(`[GPT-SUMMARY] Summary sent to user=${userId}`);
   } catch (err) {
     console.error('[GPT-SUMMARY] Error:', err);
-    res.status(500).send('Something went wrong while generating the summary.');
   }
 };
