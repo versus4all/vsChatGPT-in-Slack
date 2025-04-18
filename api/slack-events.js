@@ -8,12 +8,12 @@ export default async function handler(req, res) {
   const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
   const allowedUserId = 'U02982R3A0J';
 
-  // Проверка URL Slack
+  // Проверка Slack URL
   if (type === 'url_verification') {
     return res.status(200).json({ challenge });
   }
 
-  // Обработка упоминаний бота и добавления реакции 📄
+  // Обработка app_mention или реакции 📄
   if (
     (event?.type === 'app_mention' && event.user === allowedUserId) ||
     (event?.type === 'reaction_added' && event.reaction === 'page_facing_up' && event.user === allowedUserId)
@@ -26,7 +26,7 @@ export default async function handler(req, res) {
       const channel = event.item?.channel || event.channel;
       const thread_ts = event.item?.ts || event.thread_ts;
 
-      // Открытие личного канала с пользователем
+      // Открываем DM
       const dmRes = await fetch('https://slack.com/api/conversations.open', {
         method: 'POST',
         headers: {
@@ -39,7 +39,7 @@ export default async function handler(req, res) {
       const dm = await dmRes.json();
       const dmChannel = dm.channel?.id;
 
-      // Отправка сообщения с кнопкой отмены
+      // Сообщение с кнопкой отмены
       await fetch('https://slack.com/api/chat.postMessage', {
         method: 'POST',
         headers: {
@@ -69,28 +69,25 @@ export default async function handler(req, res) {
         }),
       });
 
-      // Запуск таймера на 30 секунд
+      // Таймер ожидания перед запуском GPT
       const timeoutId = setTimeout(async () => {
         pendingSummaries.delete(event.user);
 
-        // Получение сообщений
         let messages = [];
 
         if (isThread && thread_ts) {
           const replies = await fetch(
             `https://slack.com/api/conversations.replies?channel=${channel}&ts=${thread_ts}&limit=100`,
-            {
-              headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
-            }
+            { headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` } }
           ).then((res) => res.json());
+
           messages = replies.messages?.map((m) => m.text).filter(Boolean);
         } else {
           const history = await fetch(
             `https://slack.com/api/conversations.history?channel=${channel}&limit=${limit}`,
-            {
-              headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
-            }
+            { headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` } }
           ).then((res) => res.json());
+
           messages = history.messages?.reverse().map((m) => m.text).filter(Boolean);
         }
 
@@ -108,16 +105,7 @@ export default async function handler(req, res) {
             messages: [
               {
                 role: 'system',
-                content: `You're a Slack assistant. Summarize messages like this:
-
-*🧠 Topic:* ...  
-*👥 Participants:* ...  
-*📋 Key Points:*  
-• ...  
-*✅ Decisions:*  
-• ...  
-*🔐 Credentials:*  
-• IPs / URLs / passwords, etc.`,
+                content: `You're a Slack assistant. Summarize the messages in this format:\n\n*🧠 Topic:* ...\n*👥 Participants:* ...\n*📋 Key Points:* ...\n*✅ Decisions:* ...\n*🔐 Credentials:* ...`,
               },
               {
                 role: 'user',
@@ -129,26 +117,4 @@ export default async function handler(req, res) {
 
         const summary = gptRes.choices?.[0]?.message?.content || '⚠️ GPT returned no summary.';
 
-        await fetch('https://slack.com/api/chat.postMessage', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${SLACK_BOT_TOKEN}`,
-          },
-          body: JSON.stringify({
-            channel: dmChannel,
-            text: summary,
-          }),
-        });
-      }, 30000); // 30 секунд
-
-      pendingSummaries.set(event.user, timeoutId);
-      return res.status(200).end();
-    } catch (err) {
-      console.error('summary error:', err);
-      return res.status(200).send('⚠️ Summary process failed.');
-    }
-  }
-
-  res.status(200).end();
-}
+        await fetch('https://slack.com/api/chat.postMessage',
