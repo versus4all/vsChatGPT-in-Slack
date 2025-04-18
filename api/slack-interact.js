@@ -73,3 +73,4 @@ module.exports = async (req, res) => {
     return res.status(500).send('Internal Server Error');
   }
 };
+//"fix: use button.value for threadTs in slack-interact.js"
