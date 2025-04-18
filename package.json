@@ -1,0 +1,9 @@
+{
+  "name": "slack-gpt",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "commonjs",
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  }
+}
