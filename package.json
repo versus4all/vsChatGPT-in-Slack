@@ -5,6 +5,7 @@
   "type": "commonjs",
   "dependencies": {
     "@upstash/redis": "latest",
-    "node-fetch": "latest"
+    "node-fetch": "latest",
+    "axios": "latest"                     // ✅ добавлено
   }
 }
