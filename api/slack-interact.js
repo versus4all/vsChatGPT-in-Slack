@@ -1,4 +1,4 @@
-const pendingSummaries = new Map(); // Временно здесь — лучше вынести в общий модуль при масштабировании
+import { pendingSummaries } from '../lib/state.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end("Method Not Allowed");
@@ -12,7 +12,7 @@ export default async function handler(req, res) {
       clearTimeout(pendingSummaries.get(userId));
       pendingSummaries.delete(userId);
 
-      // Обновим сообщение с подтверждением
+      // Подтверждение отмены
       await fetch("https://slack.com/api/chat.postMessage", {
         method: "POST",
         headers: {
@@ -33,5 +33,3 @@ export default async function handler(req, res) {
 
   return res.status(200).send("✅ Button received.");
 }
-
-export { pendingSummaries };
