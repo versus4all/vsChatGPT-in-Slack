@@ -1,79 +1,58 @@
-const { pendingSummaries } = require('../lib/state');
-const { runSummary } = require('../lib/summary');
+// api/slack-events.js
+const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+const qs = require('querystring');
+const { createSummaryJob } = require('../lib/summary');
 
 module.exports = async (req, res) => {
-  if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST');
-    return res.status(405).end('Method Not Allowed');
+  if (req.method !== 'POST') return res.status(405).end();
+
+  const contentType = req.headers['content-type'] || '';
+  let payload = req.body;
+
+  // Если пришло form-urlencoded (Events API)
+  if (contentType.includes('application/x-www-form-urlencoded')) {
+    const parsed = qs.parse(req.body);
+    payload = parsed.payload ? JSON.parse(parsed.payload) : parsed;
   }
 
-  if (req.body?.type === 'url_verification') {
-    return res.status(200).json({ challenge: req.body.challenge });
+  // URL verification (Slack проверка endpoint)
+  if (payload.type === 'url_verification') {
+    return res.status(200).send(payload.challenge);
   }
 
-  const event = req.body?.event;
-  if (!event || event.type !== 'app_mention') {
-    return res.status(200).end();
+  // Событие Events API
+  const event = payload.event || payload;
+
+  // 1) Реакция 📄 (page_facing_up)
+  if (event.type === 'reaction_added' && event.reaction === 'page_facing_up') {
+    const userId   = event.user;
+    const threadTs = event.item.thread_ts || event.item.ts;
+    console.log(`[EVENTS] reaction_added by ${userId}, threadTs=${threadTs}`);
+    await createSummaryJob({
+      userId,
+      threadTs,
+      delayMs: 30000,
+      callback: async () => {
+        // тут можно скопировать логику из api/gpt-summary.js callback
+        await fetch('https://slack.com/api/chat.postMessage', { /* … */ });
+      },
+    });
   }
 
-  const { user, channel, thread_ts, text } = event;
-
-  // Открыть личку для ответов
-  const dmResponse = await fetch('https://slack.com/api/conversations.open', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-    },
-    body: JSON.stringify({ users: user }),
-  });
-
-  const dmData = await dmResponse.json();
-  const dmChannel = dmData.channel?.id;
-
-  // Поддержка синтаксиса: "@ChatGPT summarize last 30 messages"
-  const match = text.match(/last (\d+)/i);
-  const limit = match ? parseInt(match[1], 10) : 20;
-
-  // Отправка сообщения с кнопкой отмены
-  await fetch('https://slack.com/api/chat.postMessage', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-    },
-    body: JSON.stringify({
-      channel: dmChannel,
-      text: '⏳ Подготовка summary...',
-      blocks: [
-        {
-          type: 'section',
-          text: { type: 'mrkdwn', text: '⏳ *Summary is being prepared...*' },
-        },
-        {
-          type: 'actions',
-          elements: [
-            {
-              type: 'button',
-              text: { type: 'plain_text', text: '❌ Отменить', emoji: true },
-              style: 'danger',
-              action_id: 'cancel_summary',
-            },
-          ],
-        },
-      ],
-    }),
-  });
-
-  // Запуск таймера на генерацию summary
-  await runSummary({
-    channel,
-    thread_ts,
-    user,
-    dmChannel,
-    limit,
-    isThread: !!thread_ts,
-  });
+  // 2) Упоминание @ChatGPT
+  if (event.type === 'app_mention' && /резюме|обзор|summary/i.test(event.text)) {
+    const userId   = event.user;
+    const threadTs = event.thread_ts || event.ts;
+    console.log(`[EVENTS] app_mention by ${userId}, threadTs=${threadTs}`);
+    await createSummaryJob({
+      userId,
+      threadTs,
+      delayMs: 30000,
+      callback: async () => {
+        // можно вызвать тот же callback из api/gpt-summary.js
+      },
+    });
+  }
 
   return res.status(200).end();
 };
