@@ -34,18 +34,22 @@ module.exports = async (req, res) => {
       }),
     });
 
+    // 💡 Вместо try/json → читаем как текст и пытаемся распарсить
+    const raw = await historyResp.text();
+    console.log('[GPT-SUMMARY] Raw Slack response:', raw);
+
     let history;
     try {
-      history = await historyResp.json();
-      console.log('[GPT-SUMMARY] Slack history response:', JSON.stringify(history, null, 2));
+      history = JSON.parse(raw);
     } catch (err) {
-      const raw = await historyResp.text?.();
       console.error('[GPT-SUMMARY] Error parsing Slack response:', err);
-      if (raw) console.error('[GPT-SUMMARY] Raw Slack response:', raw);
       return;
     }
 
-    if (!history.ok) throw new Error(`Failed to fetch messages: ${history.error}`);
+    if (!history.ok) {
+      console.error(`[GPT-SUMMARY] Slack returned error: ${history.error}`);
+      return;
+    }
 
     const messages = history.messages.reverse().map(m => m.text).join('\n');
     console.log('[GPT-SUMMARY] Messages fetched, sending to OpenAI...');
@@ -93,6 +97,6 @@ module.exports = async (req, res) => {
 
     console.log(`[GPT-SUMMARY] Summary sent to user=${userId}`);
   } catch (err) {
-    console.error('[GPT-SUMMARY] Error:', err);
+    console.error('[GPT-SUMMARY] Fatal error:', err);
   }
 };
