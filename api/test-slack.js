@@ -1,44 +1,34 @@
 // api/test-slack.js
 
-const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+const axios = require('axios');
 
 module.exports = async (req, res) => {
-  console.log('✅ [TEST] Starting Slack API test...');
-  const channelId = 'C02VDCVNJ01'; // 👈 Твой актуальный ID канала
+  console.log('✅ [TEST] Starting Slack API test with axios...');
+  const channelId = 'C02VDCVNJ01'; // 👈 Убедись, что ID актуальный
 
   try {
-    const slackResp = await fetch('https://slack.com/api/conversations.info', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-        'Content-Type': 'application/json; charset=utf-8', // ✅ charset добавлен
-      },
-      body: JSON.stringify({ channel: channelId }),
-    });
+    const response = await axios.post(
+      'https://slack.com/api/conversations.info',
+      { channel: channelId },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
 
-    console.log('[TEST] Slack status:', slackResp.status);
+    console.log('[TEST] Slack response data:', JSON.stringify(response.data, null, 2));
 
-    const raw = await slackResp.text();
-    console.log('[TEST] Raw Slack response:', raw);
-
-    let json;
-    try {
-      json = JSON.parse(raw);
-    } catch (err) {
-      console.error('[TEST] Failed to parse Slack JSON:', err.message);
-      res.status(500).json({ error: 'Slack response not JSON' });
-      return;
-    }
-
-    if (!json.ok) {
-      console.error('[TEST] Slack error:', json.error);
+    if (!response.data.ok) {
+      console.error('[TEST] Slack API returned error:', response.data.error);
     } else {
-      console.log('[TEST] Slack API call success.');
+      console.log('[TEST] Slack API call succeeded.');
     }
 
-    res.status(200).json({ status: 'ok', response: json });
+    res.status(200).json({ status: 'ok', response: response.data });
   } catch (err) {
-    console.error('[TEST] Fatal error:', err.name, err.message, err.stack);
+    console.error('[TEST] Axios request failed:', err.message);
     res.status(500).json({ error: err.message });
   }
 };
