@@ -1,75 +1,80 @@
-const { pendingSummaries } = require('../lib/state');
-const { runSummary } = require('../lib/summary');
+const { createSummaryJob } = require('../lib/summary');
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST');
-    return res.status(405).end('Method Not Allowed');
+    return res.status(405).send('Method Not Allowed');
   }
 
-  const { user_id, channel_id, thread_ts, text } = req.body;
-  const match = text?.match(/--last (\d+)/);
-  const limit = match ? parseInt(match[1], 10) : 20;
-  const isThread = !!thread_ts;
+  try {
+    const body = req.body;
 
-  console.log('[GPT-SUMMARY] Requested by:', user_id);
+    const userId = body.user_id;
+    const threadTs = body.thread_ts || body.ts || 'default';
+    const delayMs = 30000; // 30 seconds
 
-  // Создаём пустой "маяк", чтобы можно было отменить до запуска таймера
-  pendingSummaries.set(user_id, null);
+    console.log(`[GPT-SUMMARY] Received request from user=${userId}, threadTs=${threadTs}`);
 
-  const dmRes = await fetch('https://slack.com/api/conversations.open', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-    },
-    body: JSON.stringify({ users: user_id }),
-  });
-
-  const dmData = await dmRes.json();
-  const dmChannel = dmData.channel?.id;
-
-  // Показываем кнопку отмены
-  await fetch('https://slack.com/api/chat.postMessage', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-    },
-    body: JSON.stringify({
-      channel: dmChannel,
-      text: '⏳ Preparing summary...',
+    // Отправляем "ожидание" и кнопку отмены
+    const payload = {
+      response_type: 'ephemeral',
+      text: '⏳ Summary will be generated in 30 seconds…',
       blocks: [
         {
           type: 'section',
-          text: { type: 'mrkdwn', text: '⏳ *Summary is being prepared...*' },
+          text: {
+            type: 'mrkdwn',
+            text: '⏳ Summary will be generated in 30 seconds…',
+          },
         },
         {
           type: 'actions',
           elements: [
             {
               type: 'button',
-              text: { type: 'plain_text', text: '❌ Отменить', emoji: true },
-              style: 'danger',
+              text: {
+                type: 'plain_text',
+                text: '❌ Cancel summary',
+              },
               action_id: 'cancel_summary',
+              style: 'danger',
             },
           ],
         },
       ],
-    }),
-  });
+    };
 
-  // Ставим таймер чуть позже, чтобы Slack успел отрисовать
-  setTimeout(() => {
-    runSummary({
-      channel: channel_id,
-      thread_ts,
-      user: user_id,
-      dmChannel,
-      limit,
-      isThread,
+    res.status(200).json(payload);
+
+    // Запускаем отложенную задачу
+    await createSummaryJob({
+      userId,
+      threadTs,
+      delayMs,
+      callback: async () => {
+        console.log(`[GPT-SUMMARY] Generating summary for user=${userId}, threadTs=${threadTs}`);
+
+        // TODO: здесь должен быть твой код генерации summary
+        // Пример:
+        const summaryText = `🧠 Summary for thread \`${threadTs}\` (user: ${userId})`;
+
+        // Отправляем пользователю в личку
+        await fetch('https://slack.com/api/chat.postMessage', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            channel: userId,
+            text: summaryText,
+          }),
+        });
+
+        console.log(`[GPT-SUMMARY] Summary sent to user=${userId}`);
+      },
     });
-  }, 100); // 100ms задержка
-
-  return res.status(200).end();
+  } catch (error) {
+    console.error('[GPT-SUMMARY] Error:', error);
+    res.status(500).send('Internal Server Error');
+  }
 };
