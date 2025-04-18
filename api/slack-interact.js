@@ -1,10 +1,9 @@
 const { pendingSummaries } = require('../lib/state');
-const fetch = require('node-fetch'); // если нужен в твоей среде
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(405).end('Method Not Allowed');
 
-  // Slack может прислать JSON строкой или уже объектом
+  // Slack может прислать payload как JSON строку или уже объект
   const rawPayload = req.body?.payload || req.body;
   const parsed = typeof rawPayload === 'string' ? JSON.parse(rawPayload) : rawPayload;
 
@@ -13,7 +12,7 @@ module.exports = async (req, res) => {
   const channelId = parsed?.channel?.id || parsed?.container?.channel_id || parsed?.user?.id;
 
   if (!userId || !actionId) {
-    console.error('❌ Bad Slack payload:', parsed);
+    console.error('❌ Invalid Slack payload:', parsed);
     return res.status(400).send('Invalid payload');
   }
 
