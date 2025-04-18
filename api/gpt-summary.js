@@ -36,9 +36,25 @@ module.exports = async (req, res) => {
       }),
     });
 
-    const history = await historyResp.json();
-    if (!history.ok) throw new Error(`Failed to fetch messages: ${history.error}`);
-    console.log('[GPT-SUMMARY] Slack history response:', JSON.stringify(history, null, 2));
+try {
+  const history = await historyResp.json();
+  console.log('[GPT-SUMMARY] Slack history response:', JSON.stringify(history, null, 2));
+
+  if (!history.ok) throw new Error(`Failed to fetch messages: ${history.error}`);
+
+  const messages = history.messages.reverse().map(m => m.text).join('\n');
+  console.log('[GPT-SUMMARY] Messages fetched, sending to OpenAI...');
+  
+  // продолжение...
+} catch (err) {
+  const raw = await historyResp.text?.();
+  console.error('[GPT-SUMMARY] Error parsing Slack response:', err);
+  if (raw) {
+    console.error('[GPT-SUMMARY] Raw Slack response:', raw);
+  }
+  return;
+}
+
 
     const messages = history.messages.reverse().map(m => m.text).join('\n');
     console.log('[GPT-SUMMARY] Messages fetched, sending to OpenAI...');
