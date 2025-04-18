@@ -4,14 +4,14 @@ const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fet
 
 module.exports = async (req, res) => {
   console.log('✅ [TEST] Starting Slack API test...');
-  const channelId = 'C02VDCVNJ01'; // 👈 ЗАМЕНИ на ID своего канала (где вызываешь /gpt-summary)
+  const channelId = 'C02VDCVNJ01'; // 👈 Твой актуальный ID канала
 
   try {
     const slackResp = await fetch('https://slack.com/api/conversations.info', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/json; charset=utf-8', // ✅ charset добавлен
       },
       body: JSON.stringify({ channel: channelId }),
     });
