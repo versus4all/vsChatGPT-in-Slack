@@ -30,7 +30,7 @@ module.exports = async (req, res) => {
       payload.actions?.[0]?.action_id === 'cancel_summary'
     ) {
       const userId = payload.user.id;
-      const threadTs = payload.actions[0].value;    // ← берём из value кнопки
+      const threadTs = payload.actions[0].value;    // ← теперь используем value кнопки
 
       console.log(`[INTERACT] Cancel requested by user=${userId}, threadTs=${threadTs}`);
 
