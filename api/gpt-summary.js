@@ -1,5 +1,6 @@
 // api/gpt-summary.js
-const fetch = require('node-fetch');
+
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
 module.exports = async (req, res) => {
   const body = req.body;
@@ -9,14 +10,12 @@ module.exports = async (req, res) => {
   const channelId = body.channel_id;
   const threadTs = body.thread_ts || null;
 
-  // Параметр --last N
   const match = commandText.match(/--last (\d+)/);
   const numMessages = match ? parseInt(match[1], 10) : 10;
 
   console.log(`[GPT-SUMMARY] Request from user=${userId}, channel=${channelId}, threadTs=${threadTs}, last=${numMessages}`);
 
   try {
-    // 1. Получаем последние N сообщений из канала (или треда)
     const historyResp = await fetch('https://slack.com/api/conversations.history', {
       method: 'POST',
       headers: {
@@ -36,7 +35,6 @@ module.exports = async (req, res) => {
 
     const messages = history.messages.reverse().map(m => m.text).join('\n');
 
-    // 2. Отправляем в GPT
     const prompt = `Summarize the following Slack discussion:\n\n${messages}`;
     const gptResp = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -53,7 +51,6 @@ module.exports = async (req, res) => {
     const gptData = await gptResp.json();
     const summary = gptData.choices?.[0]?.message?.content || '[No summary returned]';
 
-    // 3. Отправляем результат в Direct Message
     const dmResp = await fetch('https://slack.com/api/conversations.open', {
       method: 'POST',
       headers: {
