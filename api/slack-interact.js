@@ -1,3 +1,4 @@
+const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 const { cancelSummary } = require('../lib/summary');
 const state = require('../lib/state');
 
@@ -7,10 +8,14 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const payload = JSON.parse(req.body);
+    // req.body уже распарсен в объект
+    const payload = req.body;
 
-    // Проверяем тип действия (только для кнопки)
-    if (payload.type === 'block_actions' && payload.actions?.[0]?.action_id === 'cancel_summary') {
+    // Обрабатываем только блоковые действия по кнопке cancel_summary
+    if (
+      payload.type === 'block_actions' &&
+      payload.actions?.[0]?.action_id === 'cancel_summary'
+    ) {
       const userId = payload.user.id;
       const threadTs = payload.message.ts;
 
@@ -20,12 +25,9 @@ module.exports = async (req, res) => {
       if (existing === 'scheduled') {
         await cancelSummary(userId, threadTs);
 
-        // Обновляем сообщение в Slack
         await fetch(payload.response_url, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             text: '❌ Summary has been cancelled.',
             replace_original: true,
@@ -34,12 +36,9 @@ module.exports = async (req, res) => {
 
         console.log(`[INTERACT] Summary cancelled.`);
       } else {
-        // Если задача уже выполнена/отменена
         await fetch(payload.response_url, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             text: '⚠️ Summary is no longer pending.',
             replace_original: true,
@@ -52,7 +51,7 @@ module.exports = async (req, res) => {
       return res.status(200).end();
     }
 
-    // Если пришло что-то другое — просто завершаем
+    // Всё остальное игнорируем
     return res.status(200).end();
   } catch (error) {
     console.error('[INTERACT] Error handling action:', error);
