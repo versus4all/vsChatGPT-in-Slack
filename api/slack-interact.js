@@ -3,23 +3,18 @@ const { pendingSummaries } = require('../lib/state');
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(405).end('Method Not Allowed');
 
-  // Slack может прислать payload как JSON строку или уже объект
   const rawPayload = req.body?.payload || req.body;
-  const parsed = typeof rawPayload === 'string' ? JSON.parse(rawPayload) : rawPayload;
+  const payload = typeof rawPayload === 'string' ? JSON.parse(rawPayload) : rawPayload;
 
-  const userId = parsed?.user?.id;
-  const actionId = parsed?.actions?.[0]?.action_id;
-  const channelId = parsed?.channel?.id || parsed?.container?.channel_id || parsed?.user?.id;
+  const userId = payload?.user?.id;
+  const actionId = payload?.actions?.[0]?.action_id;
+  const channelId = payload?.channel?.id || payload?.container?.channel_id || payload?.user?.id;
 
-  if (!userId || !actionId) {
-    console.error('❌ Invalid Slack payload:', parsed);
-    return res.status(400).send('Invalid payload');
-  }
-
-  console.log(`[cancel] Action: ${actionId}, User: ${userId}, Channel: ${channelId}`);
+  console.log('[INTERACT] Action:', actionId, '| From user:', userId);
 
   if (actionId === 'cancel_summary') {
     if (pendingSummaries.has(userId)) {
+      console.log('[INTERACT] Cancelling timeout for user:', userId);
       clearTimeout(pendingSummaries.get(userId));
       pendingSummaries.delete(userId);
 
@@ -37,6 +32,7 @@ module.exports = async (req, res) => {
 
       return res.status(200).end();
     } else {
+      console.log('[INTERACT] Nothing to cancel for user:', userId);
       await fetch('https://slack.com/api/chat.postMessage', {
         method: 'POST',
         headers: {
@@ -48,7 +44,6 @@ module.exports = async (req, res) => {
           text: '⚠️ Nothing to cancel.',
         }),
       });
-
       return res.status(200).end();
     }
   }
