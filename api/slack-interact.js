@@ -11,31 +11,28 @@ module.exports = async (req, res) => {
   }
 
   try {
-    // 1) Надёжно разобрать тело запроса
+    // Распарсим тело
     let payload;
     if (req.body && typeof req.body === 'object' && 'payload' in req.body) {
-      // Slack уже прислал распаршенный объект с payload
       const p = req.body.payload;
       payload = typeof p === 'string' ? JSON.parse(p) : p;
     } else if (typeof req.body === 'string') {
-      // Тело — строка form-urlencoded
       const parsed = qs.parse(req.body);
       payload = parsed.payload ? JSON.parse(parsed.payload) : parsed;
     } else {
-      // Иначе считаем, что body — это JSON-объект
       payload = req.body;
     }
 
     console.log('[INTERACT] Payload received:', JSON.stringify(payload));
 
-    // 2) Обработка нажатия кнопки "Cancel summary"
+    // Обрабатываем только нажатие кнопки
     if (
       payload.type === 'block_actions' &&
       payload.actions?.[0]?.action_id === 'cancel_summary'
     ) {
       const userId = payload.user.id;
-      const threadTs = payload.message.ts;
-
+      // Берём ts из container.message_ts
+      const threadTs = payload.container?.message_ts;
       console.log(
         `[INTERACT] Cancel requested by user=${userId}, threadTs=${threadTs}`
       );
@@ -45,6 +42,7 @@ module.exports = async (req, res) => {
 
       if (existing === 'scheduled') {
         await cancelSummary(userId, threadTs);
+
         await fetch(payload.response_url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -53,6 +51,7 @@ module.exports = async (req, res) => {
             replace_original: true,
           }),
         });
+
         console.log(`[INTERACT] Summary cancelled.`);
       } else {
         await fetch(payload.response_url, {
@@ -63,13 +62,13 @@ module.exports = async (req, res) => {
             replace_original: true,
           }),
         });
+
         console.log(`[INTERACT] Cancel ignored — no active job.`);
       }
 
       return res.status(200).end();
     }
 
-    // Всё прочее — возвращаем 200 OK
     return res.status(200).end();
   } catch (error) {
     console.error('[INTERACT] Error handling action:', error);
