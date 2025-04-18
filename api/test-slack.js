@@ -4,7 +4,7 @@ const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fet
 
 module.exports = async (req, res) => {
   console.log('✅ [TEST] Starting Slack API test...');
-  const channelId = 'C061303RR0E'; // 👈 ЗАМЕНИ на ID своего канала (где вызываешь /gpt-summary)
+  const channelId = 'C02VDCVNJ01'; // 👈 ЗАМЕНИ на ID своего канала (где вызываешь /gpt-summary)
 
   try {
     const slackResp = await fetch('https://slack.com/api/conversations.info', {
