@@ -1,81 +1,86 @@
-const { createSummaryJob } = require('../lib/summary');
+// api/gpt-summary.js
+const fetch = require('node-fetch');
 
 module.exports = async (req, res) => {
-  if (req.method !== 'POST') {
-    return res.status(405).send('Method Not Allowed');
-  }
+  const body = req.body;
+
+  const commandText = body.text || '';
+  const userId = body.user_id;
+  const channelId = body.channel_id;
+  const threadTs = body.thread_ts || null;
+
+  // Параметр --last N
+  const match = commandText.match(/--last (\d+)/);
+  const numMessages = match ? parseInt(match[1], 10) : 10;
+
+  console.log(`[GPT-SUMMARY] Request from user=${userId}, channel=${channelId}, threadTs=${threadTs}, last=${numMessages}`);
 
   try {
-    const body = req.body;
-
-    const userId = body.user_id;
-    const threadTs = body.thread_ts || body.ts || 'default';
-    const delayMs = 30000; // 30 секунд
-
-    console.log(`[GPT-SUMMARY] Received request from user=${userId}, threadTs=${threadTs}`);
-
-    // Эфемерное сообщение с кнопкой отмены
-    const payload = {
-      response_type: 'ephemeral',
-      text: '⏳ Summary will be generated in 30 seconds…',
-      blocks: [
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: '⏳ Summary will be generated in 30 seconds…',
-          },
-        },
-        {
-          type: 'actions',
-          elements: [
-            {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: '❌ Cancel summary',
-              },
-              action_id: 'cancel_summary',
-              style: 'danger',
-              value: threadTs,                // ← передаём оригинальный threadTs
-            },
-          ],
-        },
-      ],
-    };
-
-    // сразу отвечаем Slack, чтобы избежать dispatch_failed
-    res.status(200).json(payload);
-
-    // запускаем отложенную задачу
-    await createSummaryJob({
-      userId,
-      threadTs,
-      delayMs,
-      callback: async () => {
-        console.log(`[GPT-SUMMARY] Generating summary for user=${userId}, threadTs=${threadTs}`);
-
-        // ЗДЕСЬ: замени на реальную логику сборa и вызова GPT
-        const summaryText = `🧠 Summary for thread \`${threadTs}\` (user: ${userId})`;
-
-        // отправляем итог в личку
-        await fetch('https://slack.com/api/chat.postMessage', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            channel: userId,
-            text: summaryText,
-          }),
-        });
-
-        console.log(`[GPT-SUMMARY] Summary sent to user=${userId}`);
+    // 1. Получаем последние N сообщений из канала (или треда)
+    const historyResp = await fetch('https://slack.com/api/conversations.history', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+        'Content-Type': 'application/json',
       },
+      body: JSON.stringify({
+        channel: channelId,
+        limit: numMessages,
+        inclusive: true,
+        ...(threadTs ? { oldest: threadTs } : {}),
+      }),
     });
-  } catch (error) {
-    console.error('[GPT-SUMMARY] Error:', error);
-    res.status(500).send('Internal Server Error');
+
+    const history = await historyResp.json();
+    if (!history.ok) throw new Error(`Failed to fetch messages: ${history.error}`);
+
+    const messages = history.messages.reverse().map(m => m.text).join('\n');
+
+    // 2. Отправляем в GPT
+    const prompt = `Summarize the following Slack discussion:\n\n${messages}`;
+    const gptResp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    const gptData = await gptResp.json();
+    const summary = gptData.choices?.[0]?.message?.content || '[No summary returned]';
+
+    // 3. Отправляем результат в Direct Message
+    const dmResp = await fetch('https://slack.com/api/conversations.open', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ users: userId }),
+    });
+
+    const dm = await dmResp.json();
+    if (!dm.ok) throw new Error(`Failed to open DM: ${dm.error}`);
+
+    await fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        channel: dm.channel.id,
+        text: `🧠 Here’s your summary:\n\n${summary}`,
+      }),
+    });
+
+    res.status(200).send();
+  } catch (err) {
+    console.error('[GPT-SUMMARY] Error:', err);
+    res.status(500).send('Something went wrong while generating the summary.');
   }
 };
