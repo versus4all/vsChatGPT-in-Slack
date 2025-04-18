@@ -8,13 +8,12 @@ module.exports = async (req, res) => {
   }
 
   const { user_id, channel_id, thread_ts, text } = req.body;
-
-  // Извлечение количества сообщений
   const match = text?.match(/--last (\d+)/);
   const limit = match ? parseInt(match[1], 10) : 20;
   const isThread = !!thread_ts;
 
-  // Ответ в DM
+  console.log('[GPT-SUMMARY] Start requested by:', user_id);
+
   const dmRes = await fetch('https://slack.com/api/conversations.open', {
     method: 'POST',
     headers: {
@@ -27,7 +26,7 @@ module.exports = async (req, res) => {
   const dmData = await dmRes.json();
   const dmChannel = dmData.channel?.id;
 
-  // Сообщение "готовится"
+  // Сообщение с кнопкой отмены
   await fetch('https://slack.com/api/chat.postMessage', {
     method: 'POST',
     headers: {
@@ -56,6 +55,8 @@ module.exports = async (req, res) => {
       ],
     }),
   });
+
+  console.log('[GPT-SUMMARY] Calling runSummary with user_id:', user_id);
 
   await runSummary({
     channel: channel_id,
