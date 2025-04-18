@@ -1,9 +1,10 @@
 {
-  "name": "slack-gpt",
+  "name": "vs-chatgpt-in-slack",
   "version": "1.0.0",
   "main": "index.js",
   "type": "commonjs",
   "dependencies": {
-    "node-fetch": "^3.3.2"
+    "@upstash/redis": "latest",
+    "node-fetch": "latest"
   }
 }
