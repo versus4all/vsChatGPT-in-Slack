@@ -38,6 +38,7 @@ module.exports = async (req, res) => {
 
     const history = await historyResp.json();
     if (!history.ok) throw new Error(`Failed to fetch messages: ${history.error}`);
+    console.log('[GPT-SUMMARY] Slack history response:', JSON.stringify(history, null, 2));
 
     const messages = history.messages.reverse().map(m => m.text).join('\n');
     console.log('[GPT-SUMMARY] Messages fetched, sending to OpenAI...');
